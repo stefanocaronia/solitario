@@ -19,7 +19,8 @@ public class GameManager : MonoBehaviour {
     public Deck MainDeck;
     public Deck DrawDeck;
 
-    public List<Card> SavedCards;    
+    public List<Card> SavedCards;
+    public List<Move> Goals = new List<Move>();
 
     public Transform ColumnsContainer;
     public Transform BasesContainer;
@@ -27,7 +28,12 @@ public class GameManager : MonoBehaviour {
     public Deck[] Columns = new Deck[7];
     public Deck[] Bases = new Deck[4];
 
+    // opzioni
+    public bool OptionDraw3 = false;
+    public bool OptionHints = false;
+
     // Stack delle mosse
+    [SerializeField]
     public Stack<Move> MoveList = new Stack<Move>();
 
     float columnWidth = 0.76f;
@@ -120,6 +126,9 @@ public class GameManager : MonoBehaviour {
         DrawDeck.Clean();
         MainDeck.Clean();
 
+        MoveList.Clear();
+        Goals.Clear();
+
         Score = 0;
         Moves = 0;
     }
@@ -127,8 +136,7 @@ public class GameManager : MonoBehaviour {
     #region gestione stack delle mosse
 
     // aggiungo una mossa allo stack delle mosse
-    public void AddMove(Move move) {
-
+    public void RegisterMove(Move move) {
         MoveList.Push(move);
         //Debug.Log("Added Move: " + move.Quantity + " cards from " + move.Sender.name + " to " + move.Receiver.name + " Flipped: " + (move.Flipped?"TRUE":"FALSE"));
     }
@@ -143,33 +151,45 @@ public class GameManager : MonoBehaviour {
 
         //Debug.Log("Undo Last move: " + lastMove.Quantity + " cards from " + lastMove.Sender.name + " to " + lastMove.Receiver.name + " Flipped: " + (lastMove.Flipped ? "TRUE" : "FALSE"));
         
+        // è stato ripristinato il mazzo principale rovesciando le carte estratte
         if (lastMove.Sender.Type == DeckType.DRAW && lastMove.Receiver.Type == DeckType.MAIN) {
             
-            lastMove.Receiver.TransferCardsToDeck(lastMove.Sender, true, lastMove.Quantity, Transition.INSTANT, MoveDirection.REVERSE, true);
+            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.INSTANT, MoveDirection.REVERSE, true);
 
+        // l'ultima mossa veniva dalle carte estratte
         } else if (lastMove.Sender.Type == DeckType.DRAW) {
 
-            lastMove.Receiver.TransferCardsToDeck(lastMove.Sender, true, 1, Transition.ANIMATE, MoveDirection.REVERSE);
-            GameManager.Instance.Score -= lastMove.Score;
+            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveDirection.REVERSE);
+            Score -= lastMove.Score;
 
+        // l'ultima mossa veniva da una colonna
         } else if (lastMove.Sender.Type == DeckType.COLUMN) {
 
             if (lastMove.Flipped) {
                 lastMove.Sender.Top.Scoperta = false;
             }
 
-            lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, MoveDirection.REVERSE);
-            GameManager.Instance.Score -= lastMove.Score;
 
+            lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, MoveDirection.REVERSE);
+            Score -= lastMove.Score;
+        
+        // l'ultima mossa veniva da una base
+        } else if (lastMove.Sender.Type == DeckType.BASE) {
+            
+            lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, MoveDirection.REVERSE);
+            Score -= lastMove.Score;
+
+        // l'ultima mossa veniva dal mazzo principale (estrazione di una carta)
         } else if (lastMove.Sender.Type == DeckType.MAIN) {
-            lastMove.Receiver.TransferCardsToDeck(lastMove.Sender, false, lastMove.Quantity, Transition.ANIMATE, MoveDirection.REVERSE);
+
+            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveDirection.REVERSE);
         }
 
     }
 
     #endregion
 
-    #region initializers
+    #region gestione deck
 
     public void PopulateMainDeck() {
         MainDeck.Clean();
@@ -211,10 +231,69 @@ public class GameManager : MonoBehaviour {
             Bases[bnum].ShowBackground = true;
             Bases[bnum].ShowSuit = true;
             Bases[bnum].CardsHaveOffset = true;
-            Bases[bnum].Offset = new Vector2(-0.001f, 0.0f);
+            Bases[bnum].Offset = new Vector2(0.003f, 0.0f);
             Bases[bnum].transform.localPosition = new Vector3(hPos += columnWidth, 0.0f, 0.0f);
             Bases[bnum].name = "Base #" + bnum;
         }
+    }
+
+    /* Trasferisce le carte dalla cima di un mazzo alla cima dell'altro (anche multiple) */
+    public static void TransferCards(
+        Deck sender,   // mazzo di origine
+        Deck receiver, // mazzo di destinazione
+        int numCards = 1,
+        TraslationType traslation = TraslationType.INSTANT,
+        MoveDirection direction = MoveDirection.FORWARD,
+        bool registerAsOneMove = false
+    ) {
+
+        if (!sender.Top) return;
+
+        for (int c = 0; c < numCards; c++) {
+
+            if (!sender.Top) return;
+
+            Card card = sender.Top;
+
+            receiver.AddCard(ref card, sender, traslation);
+
+            if (direction == MoveDirection.FORWARD && !registerAsOneMove) {
+                Move newMove = new Move(sender, receiver, ref card);
+                GameManager.Instance.RegisterMove(newMove);
+            }
+
+            if (!registerAsOneMove)
+                GameManager.Instance.Moves += 1;
+
+            sender.DiscardTop();
+
+            int score = CalculateScore(sender, receiver);
+            GameManager.Instance.Score += score;
+        }
+
+        if (direction == MoveDirection.FORWARD && registerAsOneMove) {
+            Card card = receiver.Top;
+            Move newMove = new Move(sender, receiver, ref card, false, 0, numCards);
+            GameManager.Instance.RegisterMove(newMove);
+        }
+
+        if (registerAsOneMove)
+            GameManager.Instance.Moves += 1;
+    }
+
+    /* calcola il punteggio assegnato per il trasferimento di una carta da un mazzo all'altro*/
+    public static int CalculateScore(Deck sender, Deck receiver) {
+        int score = 0;
+        if (sender != null) {
+            if (receiver.Type == DeckType.BASE && sender.Type == DeckType.COLUMN) { // dalla colonna alla base
+                score += (int)Scores.FromColumnToBase;
+            } else if (receiver.Type == DeckType.BASE && sender.Type == DeckType.DRAW) { // dalle carte estratte alla base
+                score += (int)Scores.FromDrawToBase;
+            } else if (receiver.Type == DeckType.COLUMN && sender.Type == DeckType.DRAW) { //dalle carte estratte a una colonna
+                score += (int)Scores.FromDrawToColumn;
+            }
+        }
+        return score;
     }
 
     #endregion

@@ -77,6 +77,8 @@ public class Card : MonoBehaviour {
 
     [SerializeField]
     private bool _scoperta;
+    private bool _flipping;
+
     public bool Scoperta {
         get {
             return _scoperta;
@@ -182,6 +184,10 @@ public class Card : MonoBehaviour {
 
     // animazione di flip della carta
     IEnumerator cFlip() {
+
+        if (_flipping) yield break;
+        _flipping = true;
+
         float originalScale = transform.localScale.x;
         while (transform.localScale.x > 0.0f) {
             transform.localScale = new Vector3(transform.localScale.x - (FlipSpeed * Time.deltaTime), 1.0f, 1.0f);            
@@ -196,6 +202,8 @@ public class Card : MonoBehaviour {
         }
 
         transform.localScale = new Vector3(1.0f, 1.0f, 1.0f);
+
+        _flipping = false;
     }
 
     #endregion

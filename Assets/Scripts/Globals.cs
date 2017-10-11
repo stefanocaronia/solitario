@@ -47,7 +47,7 @@ namespace Whatwapp {
         FlippedCard = 5
     }
 
-    public enum Transition {
+    public enum TraslationType {
         INSTANT,
         ANIMATE
     }
@@ -89,12 +89,19 @@ namespace Whatwapp {
     }
 
     // oggetto mossa
+    [Serializable]
     public struct Move {
+        [SerializeField]
         public Deck Sender;
+        [SerializeField]
         public Deck Receiver;
+        [SerializeField]
         public Card Card;
+        [SerializeField]
         public bool Flipped;
+        [SerializeField]
         public int Score;
+        [SerializeField]
         public int Quantity;
 
         public Move(Deck sender, Deck receiver, ref Card card, bool flipped = false, int score = 0, int quantity = 1) {
