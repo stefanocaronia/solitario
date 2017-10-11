@@ -6,9 +6,7 @@ using System;
 using System.Linq;
 
 public class Deck : MonoBehaviour {
-
-    public bool empty = false;
-
+    
     [SerializeField]
     private DeckType _type;
     public DeckType Type {
@@ -20,14 +18,14 @@ public class Deck : MonoBehaviour {
             if (value == DeckType.BASE || value == DeckType.MAIN) { Draggable = false;
             } else if (value == DeckType.COLUMN || value == DeckType.DRAW) { Draggable = true; }
 
-            if (value == DeckType.MAIN || value == DeckType.DRAW) { Droppable = false; } 
-            else if (value == DeckType.COLUMN || value == DeckType.BASE) { Droppable = true; }
+            if (value == DeckType.MAIN || value == DeckType.DRAW) { CanReceiveDrop = false; } 
+            else if (value == DeckType.COLUMN || value == DeckType.BASE) { CanReceiveDrop = true; }
         }
     }
     public Suit Suit;
     public bool IsMatrioska = false;
     public bool Draggable = false;
-    public bool Droppable = false;
+    public bool CanReceiveDrop = false;
 
     private bool _cAttractCard_running = false;
 
@@ -57,13 +55,10 @@ public class Deck : MonoBehaviour {
             _suitRenderer.enabled = value;
         }
     }
-
     
-
     public List<Card> Cards;
-    public Card _cardPrefab;
 
-    private float _cardSpeed = 20.0f;
+    private float _cardSpeed = 10.0f;
 
     public bool CardsHaveOffset;
     public Vector2 Offset = Vector2.zero;
@@ -87,51 +82,94 @@ public class Deck : MonoBehaviour {
         _backgroundRenderer = GetComponent<SpriteRenderer>();
         _suitRenderer = transform.Find("Suit").GetComponent<SpriteRenderer>();
     }
+    
+    public bool Drop(ref Card card, Deck sender, MoveDirection direction = MoveDirection.FORWARD) {
 
-    private void Update() {
-        empty = IsEmpty;
-    }
-
-    public bool Take(Card card, Deck sender) {
-        if (!Droppable) return false;
+        if (!CanReceiveDrop) return false;
         int numCards = card.transform.GetComponentsInChildren<Card>().Length;
         switch (Type) {
             case (DeckType.BASE):
                 if (numCards > 1) { return false; }             
                 if (card.Suit != Suit) { return false; }
-                if (card.Valore != (Top?Top.Valore + 1:Value.ASSO)) { return false; }
+                if (card.Value != (Top?Top.Value + 1:Value.ASSO)) { return false; }
                 break;
             case (DeckType.COLUMN):
-                if (IsEmpty && card.Valore != Value.RE) {return false; }
-                if (Top != null && card.Color == Top.Color) {return false; }
-                if (!IsEmpty && card.Valore != Top.Valore - 1) {return false; }
+                if (direction == MoveDirection.REVERSE) break;
+                if (IsEmpty && card.Value != Value.RE) { return false; }
+                if (Top != null && card.Color == Top.Color) { return false; }
+                if (!IsEmpty && card.Value != Top.Value - 1) { return false; }
                 break;
         }
        
-        if (numCards > 1) {
-            Card[] cards = card.transform.GetComponentsInChildren<Card>();           
-            foreach (Card c in cards) {
-                Add(c, sender);
-                sender.Discard();
+        if (numCards > 1 && Type != DeckType.BASE) {
+            Card[] cards = card.transform.GetComponentsInChildren<Card>();
+            Move newMove = new Move(sender, this, ref card);
+
+            for (int i = 0; i < cards.Length; i++) {
+                AddCard(ref cards[i], sender);
+                sender.DiscardTop();
+            }            
+            
+            if (direction == MoveDirection.FORWARD) {
+                int score = CalculateScore(sender, this);
+                GameManager.Instance.Score += score;
+                newMove.Score += score;
             }
 
-            if (sender.Type == DeckType.COLUMN && Type == DeckType.COLUMN && sender.Top != null) {
+            if (direction == MoveDirection.FORWARD && sender.Type == DeckType.COLUMN && Type == DeckType.COLUMN && sender.Top != null) {
                 GameManager.Instance.Score += (int)Scores.FlippedCard;
+                newMove.Score += (int)Scores.FlippedCard;
+                newMove.Flipped = true;
             }
+
+            if (direction == MoveDirection.FORWARD)
+                GameManager.Instance.AddMove(newMove);
+            GameManager.Instance.Moves += 1;
 
         } else {
-            Add(card, sender);
-            sender.Discard();
 
-            if (sender.Type == DeckType.COLUMN && Type == DeckType.COLUMN && sender.Top != null) {
-                GameManager.Instance.Score += (int)Scores.FlippedCard;
+            Move newMove = new Move(sender, this, ref card);
+
+            AddCard(ref card, sender);
+            sender.DiscardTop();
+
+            if (direction == MoveDirection.FORWARD) {
+                int score = CalculateScore(sender, this);
+                GameManager.Instance.Score += score;
+                newMove.Score += score;
             }
+
+            if (direction == MoveDirection.FORWARD && sender.Type == DeckType.COLUMN && sender.Top != null) {
+                GameManager.Instance.Score += (int)Scores.FlippedCard;
+                newMove.Score += (int)Scores.FlippedCard;
+                newMove.Flipped = true;
+            }
+
+            if (direction == MoveDirection.FORWARD)
+                GameManager.Instance.AddMove(newMove);
+            GameManager.Instance.Moves += 1;
         }
+
         return true;
+    }
+
+    public int CalculateScore(Deck sender, Deck receiver) {
+        int score = 0;
+        if (sender != null) {
+            if (receiver.Type == DeckType.BASE && sender.Type == DeckType.COLUMN) {
+                score += (int)Scores.FromColumnToBase;
+            } else if (receiver.Type == DeckType.BASE && sender.Type == DeckType.DRAW) {
+                score += (int)Scores.FromDrawToBase;
+            } else if (receiver.Type == DeckType.COLUMN && sender.Type == DeckType.DRAW) {
+                score += (int)Scores.FromDrawToColumn;
+            }            
+        }
+        return score;
     }
 
     IEnumerator cAttractCard(Card card, Deck sender = null) {
 
+        _cAttractCard_running = true;
         bool oldDraggable = Draggable;
         Draggable = false;
 
@@ -139,29 +177,37 @@ public class Deck : MonoBehaviour {
         
         Cards.Add(card);
         card.Deck = this;
+        card.Draggable = false;
         card.SetSortingLayerName("Dragged");
 
         while (card.transform.position != destination.position) {
             card.transform.position = Vector3.MoveTowards(card.transform.position, destination.position, _cardSpeed * Time.deltaTime);
             yield return 0;
         }
-       
-        card.gameObject.transform.SetParent(destination);
+
+        card.transform.SetParent(destination);
         card.SetSortingLayerName("Cards");
 
-        updateScore(sender);
+        card.Scoperta = (Type != DeckType.MAIN);
+        
         Reorder();
 
         Draggable = oldDraggable;
-    }
+        _cAttractCard_running = false;
+    }    
 
-    public void MoveAndAdd(Card card, Deck sender = null) {
-        StartCoroutine(cAttractCard(card, sender));
-    }
+    public void AddCard(ref Card card, Deck sender = null, Transition transition = Transition.INSTANT) {
+        if (_ordering) return;
 
-    public void Add(Card card, Deck sender = null) {
+        if (transition == Transition.ANIMATE) {
+            if (!_cAttractCard_running) 
+                StartCoroutine(cAttractCard(card, sender));
+            return;
+        }
 
         Transform destination = ((IsMatrioska && !IsEmpty) ? Top.transform : transform);
+
+        card.Scoperta = (Type != DeckType.MAIN);
 
         Cards.Add(card);
         card.Deck = this;
@@ -170,33 +216,25 @@ public class Deck : MonoBehaviour {
 
         if (Type == DeckType.COLUMN) card.Draggable = card.Scoperta;
 
-        updateScore(sender);
-
         Reorder();
-
     }
     
-    private void updateScore(Deck sender) {
-        if (sender != null) {
-            if (Type == DeckType.BASE && sender.Type == DeckType.COLUMN) {
-                GameManager.Instance.Score += (int)Scores.FromColumnToBase;
-            } else if (Type == DeckType.BASE && sender.Type == DeckType.DRAW) {
-                GameManager.Instance.Score += (int)Scores.FromDrawToBase;
-            } else if (Type == DeckType.COLUMN && sender.Type == DeckType.DRAW) {
-                GameManager.Instance.Score += (int)Scores.FromDrawToColumn;
-            } 
-            GameManager.Instance.Moves += 1;
-        }
-    }
 
     public void Reorder() {
+
+        _ordering = true;
         int orderLayer = 0;
         Card previous = null;
-        Vector3 newPos = new Vector3(0.0f, 0.0f, 0.0f);
+        Vector3 newPos = new Vector3();
         int count = -1;
         Vector2 offset = Offset;
         foreach (Card c in Cards) {
             count++;
+
+            if (Type == DeckType.DRAW) {
+                c.Draggable = false;
+            }
+
             if (previous && CardsHaveOffset) {
 
                 if (CardsWithSecondOffset > 0) {
@@ -206,10 +244,13 @@ public class Deck : MonoBehaviour {
                         offset = OffsetSecond;
                     }
                 }
+                
+                newPos.x = previous.transform.localPosition.x;
+                newPos.y = previous.transform.localPosition.y;
 
                 if (!IsMatrioska) {
-                    newPos.x = previous.gameObject.transform.localPosition.x + offset.x;
-                    newPos.y = previous.gameObject.transform.localPosition.y + offset.y;
+                    newPos.x += offset.x;
+                    newPos.y += offset.y;
                 } else {
                     newPos.x = offset.x;
                     newPos.y = offset.y;
@@ -220,41 +261,27 @@ public class Deck : MonoBehaviour {
                 }
             }
 
+            //Debug.Log(Type + " " + c.name + " " + newPos.ToString());
             c.gameObject.transform.localPosition = newPos;
             
             c.SetSpritesOrderInLayer(orderLayer++);
 
-            previous = c;
-
-            if (Type == DeckType.DRAW) {
-                c.Draggable = false;
-            }
+            previous = c;            
         }
 
         if (Type == DeckType.DRAW) {
             Top.Draggable = true;
         }
-    }
 
-    public void Populate() {
-        foreach (Suit seme in Enum.GetValues(typeof(Suit))) {
-            foreach (Value valore in Enum.GetValues(typeof(Value))) {
-                Card c = Instantiate(_cardPrefab, transform);
-                c.Valore = valore;
-                c.Suit = seme;
-                c.Scoperta = false;
-                c.Visibile = true;               
-                Add(c);
-            }
-        }        
+        _ordering = false;
     }
-
+    
     public void Shuffle() {
         Cards = Cards.OrderBy(o => Guid.NewGuid().ToString()).ToList();
         Reorder();
     }
 
-    public void Discard() {
+    public void DiscardTop() {
         Cards.RemoveAt(Cards.Count - 1);
         if (Type != DeckType.MAIN  && Top != null) {
             Top.Scoperta = true;
@@ -262,37 +289,55 @@ public class Deck : MonoBehaviour {
         }
     }
 
-    public void Transfer(Deck otherDeck, bool scopri = false, int numCards = 1, bool move = false) {        
+    public void TransferCardsToDeck(Deck otherDeck, bool scopri = false, int numCards = 1, Transition mode = Transition.INSTANT, MoveDirection direction = MoveDirection.FORWARD, bool registerAsOneMove = false) {
+        if (!Top) return;
         for (int c = 0; c < numCards; c++) {
             if (!Top) return;
-            Top.Scoperta = scopri;
-            if (move) {
-                otherDeck.MoveAndAdd(Top, this);
-            } else {
-                otherDeck.Add(Top, this);
-            }
+            Card cref = Top;
+            otherDeck.AddCard(ref cref, this, mode);
+            
+            if (direction == MoveDirection.FORWARD && !registerAsOneMove) {
+                Move newMove = new Move(this, otherDeck, ref cref);
+                GameManager.Instance.AddMove(newMove);
+               
+            }            
 
-            Discard();
+            if (!registerAsOneMove)
+                GameManager.Instance.Moves += 1;
+
+            DiscardTop();
+
+            int score = CalculateScore(this, otherDeck);
+            GameManager.Instance.Score += score;
         }
+
+        if (direction == MoveDirection.FORWARD && registerAsOneMove) {
+            Card cref = Top;
+            Move newMove = new Move(this, otherDeck, ref cref, false, 0, numCards);
+            GameManager.Instance.AddMove(newMove);
+           
+        }
+
+        if (registerAsOneMove)
+            GameManager.Instance.Moves += 1;
     }
 
     public void OnTouchCard() {
         if (GameManager.Instance.Initializing) return;
 
         if (Type == DeckType.MAIN && !IsEmpty) {
-            Transfer(GameManager.Instance.DrawDeck, true, 1, true);
+            TransferCardsToDeck(GameManager.Instance.DrawDeck, true, 1, Transition.ANIMATE);
         } else {
-            GameManager.Instance.DrawDeck.Transfer(this, false, GameManager.Instance.DrawDeck.Cards.Count, false);
+            GameManager.Instance.DrawDeck.TransferCardsToDeck(this, false, GameManager.Instance.DrawDeck.Cards.Count, Transition.INSTANT, MoveDirection.FORWARD, true);
             GameManager.Instance.Score = 0;
         }
     }
-}
 
-
-public static class IEnumerableExtensions {
-
-    public static IEnumerable<t> Randomize<t>(this IEnumerable<t> target) {
-        System.Random r = new System.Random();
-        return target.OrderBy(x => (r.Next()));
+    public void Clean() {
+        foreach (Card c in Cards) {
+            Destroy(c.gameObject);
+        }
+        Cards.Clear();
     }
 }
+

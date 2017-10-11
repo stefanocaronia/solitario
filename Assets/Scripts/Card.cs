@@ -1,24 +1,22 @@
 ﻿using System.Collections;
-using System.Collections.Generic;
 using Whatwapp;
 using UnityEngine;
-using System.Linq;
 
 [System.Serializable]
 public class Card : MonoBehaviour {
-
-    SpriteRenderer backgroundRenderer;
-    SpriteRenderer valoreRenderer;
-    SpriteRenderer figuraRenderer;
-    SpriteRenderer semeRenderer;
-
+   
     public Deck Deck;
 
     public float FlipSpeed = 20.0f;
     public bool doFlip = true;
-
     public bool Draggable = false;
 
+    private SpriteRenderer backgroundRenderer;
+    private SpriteRenderer valoreRenderer;
+    private SpriteRenderer figuraRenderer;
+    private SpriteRenderer semeRenderer;
+
+    // attivo mentre la carta viene trascinata
     private bool _dragged;
     public bool Dragged {
         get {
@@ -34,24 +32,26 @@ public class Card : MonoBehaviour {
         }
     }
 
+    // ricavo il colore del seme
     public Whatwapp.Color Color {
         get {
             return Tables.SuitsColors[Suit];
         }
     }
 
+    // verifico se di fatto la carta è scoperta
     public bool IsScoperta {
         get { return valoreRenderer.enabled; }
     }
 
     [SerializeField]
-    private Value _valore;
-    public Value Valore {
+    private Value _value;
+    public Value Value {
         get {
-            return _valore;
+            return _value;
         }
         set {
-            _valore = value;
+            _value = value;
             valoreRenderer.sprite = Resources.Load<Sprite>("carte/numeri/" + getSpriteFromValore(value));
             UpdateFigure();
         }
@@ -93,39 +93,26 @@ public class Card : MonoBehaviour {
             _scoperta = value;
         }
     }
-
-    [SerializeField]
-    private bool _visibile;
-    public bool Visibile {
-        get {
-            return _visibile;
-        }
-        set {
-            _visibile = value;
-            gameObject.SetActive(value);
-        }
-    }
-
+    
     void Awake() {
         backgroundRenderer = GetComponent<SpriteRenderer>();
         valoreRenderer = transform.Find("Value").GetComponent<SpriteRenderer>();
         figuraRenderer = transform.Find("Picture").GetComponent<SpriteRenderer>();
         semeRenderer = transform.Find("Suit").GetComponent<SpriteRenderer>();
     }
-
-    private void Start() {
-        //Nascondi();
-        //StartCoroutine("cScopri");
-    }
+        
+    // setto la figura della carta
     public void UpdateFigure() {
-        if ((int)Valore > 10)
-            figuraRenderer.sprite = Resources.Load<Sprite>("carte/figure/" + Color.ToString().ToLower() + "/" + getSpriteFromValore(Valore));
+        if ((int)Value > 10)
+            figuraRenderer.sprite = Resources.Load<Sprite>("carte/figure/" + Color.ToString().ToLower() + "/" + getSpriteFromValore(Value));
         else
             figuraRenderer.sprite = Resources.Load<Sprite>("carte/semi/" + Suit.ToString().ToLower());
 
-        name = Valore.ToString() + " DI " + Suit.ToString();
+        // setto il nome della carta
+        name = Value.ToString() + " DI " + Suit.ToString();
     }
 
+    // mostro la carta scoperta
     public void Scopri() {
         backgroundRenderer.sprite = Resources.Load<Sprite>("carte/fronte");
         valoreRenderer.enabled = true;
@@ -133,6 +120,7 @@ public class Card : MonoBehaviour {
         semeRenderer.enabled = true;
     }
 
+    // Mostro il retro della carta
     public void Nascondi() {
         backgroundRenderer.sprite = Resources.Load<Sprite>("carte/retro-carte");
         valoreRenderer.enabled = false;
@@ -140,6 +128,7 @@ public class Card : MonoBehaviour {
         semeRenderer.enabled = false;
     }
 
+    // ottengo il nome della risorsa sprite per ogni valore
     private string getSpriteFromValore(Value val) {
         switch (val) {
             case Value.ASSO:
@@ -165,6 +154,7 @@ public class Card : MonoBehaviour {
         }
     }
 
+    // setto l'ordine degli sprite nel layer
     public void SetSpritesOrderInLayer(int num) {
         if (transform.GetComponent<SpriteRenderer>() != null) {
             transform.GetComponent<SpriteRenderer>().sortingOrder = num;
@@ -176,6 +166,7 @@ public class Card : MonoBehaviour {
         }
     }
 
+    // setto il sorting layer di tutti gli sprite
     public void SetSortingLayerName(string layer) {
         if (transform.GetComponent<SpriteRenderer>() != null) {
             transform.GetComponent<SpriteRenderer>().sortingLayerName = layer;
@@ -187,27 +178,25 @@ public class Card : MonoBehaviour {
         }
     }
     
+    #region coroutines
+
+    // animazione di flip della carta
     IEnumerator cFlip() {
         float originalScale = transform.localScale.x;
         while (transform.localScale.x > 0.0f) {
-            transform.localScale = new Vector3(
-                transform.localScale.x - (FlipSpeed * Time.deltaTime), 1.0f, 1.0f
-            );            
+            transform.localScale = new Vector3(transform.localScale.x - (FlipSpeed * Time.deltaTime), 1.0f, 1.0f);            
             yield return 0;
         }
 
         if (IsScoperta) Nascondi(); else Scopri();
 
         while (transform.localScale.x < originalScale) {
-            transform.localScale = new Vector3(
-                transform.localScale.x + (FlipSpeed * Time.deltaTime), 1.0f, 1.0f
-            );
+            transform.localScale = new Vector3(transform.localScale.x + (FlipSpeed * Time.deltaTime), 1.0f, 1.0f);
             yield return 0;
         }
 
-        transform.localScale = new Vector3(
-                1.0f, 1.0f, 1.0f
-            );
+        transform.localScale = new Vector3(1.0f, 1.0f, 1.0f);
     }
 
+    #endregion
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Whatwapp {
@@ -46,6 +47,21 @@ namespace Whatwapp {
         FlippedCard = 5
     }
 
+    public enum Transition {
+        INSTANT,
+        ANIMATE
+    }
+
+    public enum MoveDirection {
+        FORWARD,
+        REVERSE
+    }
+
+    public enum GameState {
+        PLAY,
+        PAUSE
+    }
+
     public static class Tables {
         public static Dictionary<Suit, Color> SuitsColors = new Dictionary<Suit, Color> {
             { Suit.QUADRI, Color.ROSSO },
@@ -70,5 +86,32 @@ namespace Whatwapp {
             rect.center = new Vector2(worldPos.x, worldPos.y);
             return rect;
         }
+    }
+
+    // oggetto mossa
+    public struct Move {
+        public Deck Sender;
+        public Deck Receiver;
+        public Card Card;
+        public bool Flipped;
+        public int Score;
+        public int Quantity;
+
+        public Move(Deck sender, Deck receiver, ref Card card, bool flipped = false, int score = 0, int quantity = 1) {
+            Sender = sender;
+            Receiver = receiver;
+            Card = card;
+            Flipped = flipped;
+            Score = score;
+            Quantity = quantity;
+        }
+    }
+}
+
+public static class IEnumerableExtensions {
+
+    public static IEnumerable<t> Randomize<t>(this IEnumerable<t> target) {
+        System.Random r = new System.Random();
+        return target.OrderBy(x => (r.Next()));
     }
 }
