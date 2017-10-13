@@ -129,7 +129,7 @@ public class DragManager : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
         Deck target = _card.ReadyToBaseDeck();
         if (target != null) {
             target.Drop(ref _card, _card.Deck);
-        }
+        } 
     }
 
     #endregion

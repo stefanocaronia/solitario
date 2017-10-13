@@ -10,10 +10,10 @@ using System.Linq;
  *  
  */
 public class GameManager : MonoBehaviour {
-    
+
     #region init
 
-    public static GameManager Instance; 
+    public static GameManager Instance;
     public UIManager UI; // reference alla UI
 
     public Card CardPrefab; // prefab della carta
@@ -32,7 +32,7 @@ public class GameManager : MonoBehaviour {
 
     public Deck[] Columns = new Deck[7];
     public Deck[] Bases = new Deck[4];
-    
+
     // Stack delle mosse
     public Stack<Move> MoveList = new Stack<Move>();
     public Move LastMove;
@@ -54,7 +54,7 @@ public class GameManager : MonoBehaviour {
             UI.Score.text = _score.ToString();
         }
     }
-    
+
     // numero di mosse effettuate
     private int _moves;
     public int Moves {
@@ -89,7 +89,7 @@ public class GameManager : MonoBehaviour {
         InitBases();
         StartCoroutine("cGiveCards");
     }
-    
+
     #region ciclo di attività
 
     // Nuova partita
@@ -122,7 +122,7 @@ public class GameManager : MonoBehaviour {
     // rollback dell'ultima mossa
     public void UndoLastMove() {
 
-        if (MoveList.Count == 0) 
+        if (MoveList.Count == 0)
             return;
 
         Move lastMove = MoveList.Pop();
@@ -132,16 +132,16 @@ public class GameManager : MonoBehaviour {
 
         // è stato ripristinato il mazzo principale rovesciando le carte estratte
         if (lastMove.Sender.Type == DeckType.DRAW && lastMove.Receiver.Type == DeckType.MAIN) {
-            
+
             TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.INSTANT, MoveType.BACK, true);
 
-        // l'ultima mossa veniva dalle carte estratte
+            // l'ultima mossa veniva dalle carte estratte
         } else if (lastMove.Sender.Type == DeckType.DRAW) {
 
             TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
             Score -= lastMove.Score;
 
-        // l'ultima mossa veniva da una colonna
+            // l'ultima mossa veniva da una colonna
         } else if (lastMove.Sender.Type == DeckType.COLUMN) {
 
             if (lastMove.Flipped) {
@@ -149,17 +149,17 @@ public class GameManager : MonoBehaviour {
             }
 
             lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, TraslationType.ANIMATE, MoveType.BACK);
-			//TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
+            //TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
             Score -= lastMove.Score;
-        
-        // l'ultima mossa veniva da una base
+
+            // l'ultima mossa veniva da una base
         } else if (lastMove.Sender.Type == DeckType.BASE) {
-            
-			//TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
+
+            //TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
             lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, TraslationType.ANIMATE, MoveType.BACK);
             Score -= lastMove.Score;
 
-        // l'ultima mossa veniva dal mazzo principale (estrazione di una carta)
+            // l'ultima mossa veniva dal mazzo principale (estrazione di una carta)
         } else if (lastMove.Sender.Type == DeckType.MAIN) {
 
             TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
@@ -370,10 +370,10 @@ public class GameManager : MonoBehaviour {
 
                 MainDeck.DiscardTop();
                 column.Reorder();
-            }           
+            }
         }
 
-        Initializing = false;        
+        Initializing = false;
     }
 
     #endregion

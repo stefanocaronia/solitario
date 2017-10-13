@@ -75,19 +75,19 @@ public class UIManager : MonoBehaviour {
 
         OptionDraw3.onValueChanged.AddListener(OnOptionDraw3Changed);
         OptionHints.onValueChanged.AddListener(OnOptionHintsChanged);
-        CloseOptionsButton.onClick.AddListener(Continue);
-
-        GameMustRestart = false;
-
-        OnEnable();
+        CloseOptionsButton.onClick.AddListener(Continue);        
     }
 
-    private void OnEnable() {
-                
+    private void OnOptionMenuOpen() {
+
+        GameMustRestart = false;
+        AlertGameRestart.gameObject.SetActive(false);
+        OptionDraw3_saved = GameOptions.Instance.OptionDraw3;
+
         OptionDraw3.isOn = GameOptions.Instance.OptionDraw3;
         OptionHints.isOn = GameOptions.Instance.OptionHints;
         HintButton.gameObject.SetActive(GameOptions.Instance.OptionHints);
-        OptionDraw3_saved = GameOptions.Instance.OptionDraw3;
+             
     }
 
     private void OnOptionDraw3Changed(bool value) {
@@ -114,6 +114,7 @@ public class UIManager : MonoBehaviour {
 
         if (GameManager.Instance.Initializing) return;
         OptionsMenu.gameObject.SetActive(true);
+        OnOptionMenuOpen();
         Freeze();
     }
 
