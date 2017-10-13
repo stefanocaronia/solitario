@@ -3,6 +3,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using Whatwapp;
 
+/*  Componente che gestisce tutta la UI
+ *  
+ */
 public class UIManager : MonoBehaviour {
 
     public Text Score;
@@ -27,11 +30,16 @@ public class UIManager : MonoBehaviour {
     Toggle OptionDraw3;
     Toggle OptionHints;
     Button CloseOptionsButton;
+    Text AlertGameRestart;
 
     float lastEventTime = 0.0f;
     float timeBetweenEvents = 0.4f;
 
+    bool OptionDraw3_saved;
+    bool GameMustRestart;
+
     void Awake() {
+
         Score = transform.Find("Score Bar").Find("Score").GetComponent<Text>();
         Moves = transform.Find("Score Bar").Find("Moves").GetComponent<Text>();
 
@@ -50,10 +58,12 @@ public class UIManager : MonoBehaviour {
         OptionDraw3 = OptionsMenu.Find("Options Menu Frame").Find("Option Draw 3").GetComponent<Toggle>();
         OptionHints = OptionsMenu.Find("Options Menu Frame").Find("Option Hints").GetComponent<Toggle>();
         CloseOptionsButton = OptionsMenu.Find("Button Close").GetComponent<Button>();
-    }
-    
+
+        AlertGameRestart = OptionsMenu.Find("Options Menu Frame").Find("Game Restart").GetComponent<Text>();
+    }    
 
     void Start() {
+
         OptionsButton.onClick.AddListener(OnOptionsButton);
         PauseButton.onClick.AddListener(OnPauseButton);
         UndoButton.onClick.AddListener(OnUndoButton);
@@ -66,25 +76,42 @@ public class UIManager : MonoBehaviour {
         OptionDraw3.onValueChanged.AddListener(OnOptionDraw3Changed);
         OptionHints.onValueChanged.AddListener(OnOptionHintsChanged);
         CloseOptionsButton.onClick.AddListener(Continue);
+
+        GameMustRestart = false;
+
+        OnEnable();
+    }
+
+    private void OnEnable() {
+                
+        OptionDraw3.isOn = GameOptions.Instance.OptionDraw3;
+        OptionHints.isOn = GameOptions.Instance.OptionHints;
+        HintButton.gameObject.SetActive(GameOptions.Instance.OptionHints);
+        OptionDraw3_saved = GameOptions.Instance.OptionDraw3;
     }
 
     private void OnOptionDraw3Changed(bool value) {
-        GameManager.Instance.OptionDraw3 = value;
+
+        AlertGameRestart.gameObject.SetActive(OptionDraw3_saved != value);
+        GameMustRestart = (OptionDraw3_saved != value);
+        GameOptions.Instance.OptionDraw3 = value;
     }
 
     private void OnOptionHintsChanged(bool value) {
-        GameManager.Instance.OptionHints = value;
 
-        HintButton.gameObject.SetActive(GameManager.Instance.OptionHints);
+        GameOptions.Instance.OptionHints = value;
+        HintButton.gameObject.SetActive(GameOptions.Instance.OptionHints);
     }
 
     void OnPauseButton() {
+
         if (GameManager.Instance.Initializing) return;
         PauseMenu.gameObject.SetActive(true);
         Freeze();
     }
 
     void OnOptionsButton() {
+
         if (GameManager.Instance.Initializing) return;
         OptionsMenu.gameObject.SetActive(true);
         Freeze();
@@ -99,10 +126,35 @@ public class UIManager : MonoBehaviour {
     }
 
     void OnHintButton() {
-        Debug.Log("HINT");
+
+        Move NextBestMove = GameManager.Instance.GetNextBestMove();      
+        Card SuggestedCard;
+        Deck SuggestedReceiver;
+        if (NextBestMove == null) {
+            if (!GameManager.Instance.MainDeck.IsEmpty) {
+                SuggestedCard = GameManager.Instance.MainDeck.Top;
+                SuggestedReceiver = GameManager.Instance.DrawDeck;
+            } else {
+                return;
+            }
+        } else {
+            SuggestedCard = NextBestMove.Card;
+            SuggestedReceiver = NextBestMove.Receiver;
+        }
+
+        // Debug.Log(NextBestMove.Card.name + " in " + NextBestMove.Receiver.name);
+        Vector3 position;
+        if (SuggestedReceiver.Top != null) position = SuggestedReceiver.Top.transform.position;
+        else position = SuggestedReceiver.transform.position;
+
+        if (SuggestedReceiver.Type == DeckType.COLUMN && !SuggestedReceiver.IsEmpty) {
+            position = new Vector3 (position.x, position.y - 0.26f, position.z);
+        }
+        SuggestedCard.MovePhantom(position);
     }
 
     void OnRestartButton() {
+
         GameManager.Instance.Restart();
         Continue();
     }
@@ -117,6 +169,7 @@ public class UIManager : MonoBehaviour {
     }
 
     void Continue() {
+
         PauseMenu.gameObject.SetActive(false);
         OptionsMenu.gameObject.SetActive(false);
 
@@ -127,9 +180,17 @@ public class UIManager : MonoBehaviour {
         PauseButton.enabled = true;
         UndoButton.enabled = true;
         HintButton.enabled = true;
+
+        if (GameMustRestart) {
+            GameMustRestart = false;
+            AlertGameRestart.gameObject.SetActive(false);
+            OptionDraw3_saved = GameOptions.Instance.OptionDraw3;
+            GameManager.Instance.Replay();
+        }
     }
 
     void Freeze() {
+
         GameManager.Instance.GameState = GameState.PAUSE;
         Time.timeScale = 0.0f;
 

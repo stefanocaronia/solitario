@@ -5,20 +5,23 @@ using Whatwapp;
 using System;
 using System.Linq;
 
+/*  Componente per la gestione del mazzo
+ *  
+ */
 public class Deck : MonoBehaviour {
+
+    #region init
 
     public List<Card> Cards; // lista delle carte
     public Suit Suit; // seme del mazzo (si usa nelle basi)
 
     public bool IsMatrioska; // ogni carta è un child della carta precedente (si usa nelle colonne)
     public bool Draggable; // Se false le carte del mazzo non sono draggable
-    public bool CanReceiveDrop; // può ricevere carte trascinate sopra dal giocatore
+    public bool AcceptDrops; // può ricevere carte trascinate sopra dal giocatore
     public bool CardsHaveOffset; // le carte si dispongono nel mazzo shiftwate di un offset
     public Vector2 Offset = Vector2.zero; // offset tra le carte
     public Vector2 OffsetSecond = Vector2.zero; // secondo offset tra le carte
-    public int CardsWithSecondOffset = 0; // numero di carte con un secondo offset
-
-    private float _cardSpeed = 10.0f; // velocità di traslazione delle carte
+    public int CardsWithSecondOffset = 0; // numero di carte con un secondo offset    
 
     private bool _cMoveCard_running; // è in corso il movimento della carta
     private bool _ordering; // è in corso il riordinamento del mazzo
@@ -40,7 +43,7 @@ public class Deck : MonoBehaviour {
             Draggable = _type != DeckType.MAIN;
 
             // solo le colonne o le basi possono ricevere il drop
-            CanReceiveDrop = _type == DeckType.COLUMN || _type == DeckType.BASE;
+            AcceptDrops = _type == DeckType.COLUMN || _type == DeckType.BASE;
         }
     }
 
@@ -82,38 +85,54 @@ public class Deck : MonoBehaviour {
         }
     }
 
-	// inizializzo la carta
+    #endregion
+
+    // inizializzo la carta
     void Awake() {
         _backgroundRenderer = GetComponent<SpriteRenderer>();
         _suitRenderer = transform.Find("Suit").GetComponent<SpriteRenderer>();
     }
 
-    /* il mazzo riceve il Drop di una o più carte da parte del giocatore */
-    public bool Drop(ref Card card, Deck sender, MoveDirection direction = MoveDirection.FORWARD) {
+    #region operations
 
-        if (!CanReceiveDrop) return false;
-        
-        // numero di carte trascinate (nel caso di matrioska le carte sono contenute nella carta trascinata)
+    public bool Accept(Card card) {
+
+        if (!AcceptDrops) return false;
+
         int numCards = card.transform.GetComponentsInChildren<Card>().Length;
 
-        // decido cosa impedire in base al tipo di mazzo di destinazione (this.Type) e i criteri di gioco
+        // decido cosa impedire, in base al tipo di mazzo di destinazione (this.Type) e i criteri di gioco
         switch (Type) {
 
-            // il mazzo di destinazione è una base
-            case (DeckType.BASE):
+            case (DeckType.BASE): // il mazzo di destinazione è una base
                 if (numCards > 1) return false; // la base può ricevere solo una carta alla volta
                 if (card.Suit != Suit) return false; // il seme della carta deve corrispondere a quello della base
                 if (card.Value != (Top ? Top.Value + 1 : Value.ASSO)) return false; // il valore della carta deve essere la precedente + 1 o un asso se il mazzo è vuoto
                 break;
 
-            // il mazzo di destinazione è una colonna
-            case (DeckType.COLUMN):
-                if (direction == MoveDirection.REVERSE) break; // se è il reverse di una mossa (funzionalità undo) permetti sempre il drop
+            case (DeckType.COLUMN): // il mazzo di destinazione è una colonna               
                 if (IsEmpty && card.Value != Value.RE) return false; // se la colonna è vuota accetta solo un re
                 if (Top != null && card.Color == Top.Color) return false; // la carta non deve avere lo stesso colore della precedente
                 if (!IsEmpty && card.Value != Top.Value - 1) return false; // la carta deve avere un valore decrescente
                 break;
         }
+
+        return true;
+    }
+	
+    /* Il giocatore ha trascinato e droppato una o più carte sul mazzo */
+    public bool Drop(
+        ref Card card, 
+        Deck sender, 
+        TraslationType transition = TraslationType.INSTANT, 
+        MoveType moveType = MoveType.FORWARD
+    ) {
+
+        if (!AcceptDrops) return false;
+        
+        if (!Accept(card) && moveType != MoveType.BACK) return false;
+
+        int numCards = card.transform.GetComponentsInChildren<Card>().Length;
 
         // inizializzo la mossa da salvare in history
         Move newMove = new Move(sender, this, ref card);
@@ -121,7 +140,7 @@ public class Deck : MonoBehaviour {
         bool flipped = false;
 
         // sono state trascinate più carte assieme
-        if (numCards > 1 && Type != DeckType.BASE) {
+        if (numCards > 1) {
 
             // ottengo tutte le carte della catena
             Card[] cards = card.transform.GetComponentsInChildren<Card>();
@@ -129,48 +148,41 @@ public class Deck : MonoBehaviour {
             // aggiungo tutte le carte al mazzo di destinazione
             for (int i = 0; i < cards.Length; i++) {
                 AddCard(ref cards[i], sender);
-                flipped = sender.DiscardTop(); // controllare: andrebbero tolte in senso inverso
+                flipped = sender.DiscardTop(); // TODO: andrebbero tolte in senso inverso
             }
-
-        } else {            
-
+			
+        } else {       
             // aggiungo la carta al mazzo di destinazione
-            AddCard(ref card, sender);
+            AddCard(ref card, sender, transition);
             flipped = sender.DiscardTop();
         }
 
-        // se non è una mossa reverse aggiungo punteggio e numero di mosse
-        if (direction == MoveDirection.FORWARD) {
-            int score = GameManager.CalculateScore(sender, this);
-            newMove.Score += score;
+        if (moveType == MoveType.FORWARD) {
+            // calcolo il punteggio 
+		    newMove.Score += GameManager.CalculateScore(sender, this);
         }
 
-        // se non è una mossa reverse, il sender è una colonna, ed è rimasta una carta coperta libera, aggiorno il punteggio e la mossa
-        if (direction == MoveDirection.FORWARD && sender.Type == DeckType.COLUMN && sender.Top != null && flipped) {            
+        // se il sender è una colonna ed è rimasta una carta coperta libera
+        if (moveType == MoveType.FORWARD && sender.Type == DeckType.COLUMN && sender.Top != null && flipped) {
             newMove.Score += (int)Scores.FlippedCard;
             newMove.Flipped = true;
         }
 
         // se il trascinamento viene da una base allora sottraggo il punteggio
         if (sender.Type == DeckType.BASE) {
-            int score = GameManager.CalculateScore(this, sender);
-            newMove.Score -= score;
+            newMove.Score -= GameManager.CalculateScore(this, sender);
         }
 
-        // se non è una mossa reverse, aggiungo la mossa alla history
-        if (direction == MoveDirection.FORWARD ) { // && !GameManager.Instance.Goals.Contains(newMove)
-            
-            // aggiorno il punteggio
+        if (moveType == MoveType.FORWARD) {
+            // aggiorno il punteggio, registro la mossa, incremento il numero di mosse
             GameManager.Instance.Score += newMove.Score;
-            GameManager.Instance.Goals.Add(newMove);
-
-            // registro la mossa
-            GameManager.Instance.RegisterMove(newMove);
+		    GameManager.Instance.RegisterMove(newMove);
         }
-        
-        // incremento il numero di mosse
+
         GameManager.Instance.Moves += 1;
-        
+
+        card.FindBestMove();
+
         return true;
     }
 
@@ -180,41 +192,21 @@ public class Deck : MonoBehaviour {
         // lock
         if (_ordering) return;        
 
-        // se è una matrioska e non piena la destinazione è l'ultima carta, se no il mazzo
-        Transform destination = (!IsEmpty && IsMatrioska ? Top.transform : transform);
+        // se è una matrioska e non vuota la destinazione è l'ultima carta, se no il mazzo
+        Transform target = (!IsEmpty && IsMatrioska ? Top.transform : transform);
 
         // scopro subito la carta (se la destinazione non è il mazzo principale)
         card.Scoperta = (Type != DeckType.MAIN);
 
 		Cards.Add(card); // aggiungo l'oggetto carta alla lista
         card.Deck = this; // imposto la reference del mazzo	
-        
-        // se è stata richiesta una transizione animata passo alla coroutine
-        if (transition == TraslationType.ANIMATE && !_cMoveCard_running) {
-            StartCoroutine(cMoveCard(card, destination));
-            return;
-        }
 
-        attachCardToParent(card, destination);
+        card.Move(target, transition, delegate(Card theCard) {
+            theCard.SetParent(target);
+            Reorder();
+            return true;
+		});
     }
-
-    /* rende una carta child di un mazzo o di un'altra carta */
-    private void attachCardToParent(Card card, Transform destination) {
-
-        // il mazzo di destinazione diventa il parent della carta
-        card.transform.SetParent(destination);        
-
-        // scopro subito la carta (se la destinazione non è il mazzo principale)
-        card.Scoperta = (Type != DeckType.MAIN);
-
-        // se la destinazione è una colonna, imposto la carta a trascinabile solo se è scoperta
-        if (Type == DeckType.COLUMN) card.Draggable = card.Scoperta;
-
-        // riordinamento
-        Reorder();
-    }
-
-    #region operations
 
     /* riordinamento del mazzo (offset e disposizione carte) */
     public void Reorder() {
@@ -265,7 +257,11 @@ public class Deck : MonoBehaviour {
 
             // sposto la carta
             card.transform.localPosition = newPos;
-            card.SetSpritesOrderInLayer(orderLayer++);
+            card.SetSpritesOrderInLayer(orderLayer++);    
+
+            if (Type == DeckType.DRAW) {
+                card.Draggable = false;
+            }
 
             previous = card;
         }
@@ -326,40 +322,14 @@ public class Deck : MonoBehaviour {
 		
         if (!IsEmpty) { // se non è vuoto sposto le carte nel mazzo delle estratte
 		
-            GameManager.TransferCards(this, GameManager.Instance.DrawDeck, (GameManager.Instance.OptionDraw3 ? 3 : 1), TraslationType.ANIMATE, MoveDirection.FORWARD, true);
-			
+            GameManager.TransferCards(this, GameManager.Instance.DrawDeck, (GameOptions.Instance.OptionDraw3 ? 3 : 1), TraslationType.ANIMATE, MoveType.FORWARD, true);
+
         } else { //se è vuoto rimetto tutte le carte dal mazzo delle estratte nel mazzo principale
 		
-            GameManager.TransferCards(GameManager.Instance.DrawDeck, this, GameManager.Instance.DrawDeck.Cards.Count, TraslationType.INSTANT, MoveDirection.FORWARD, true);
+            GameManager.TransferCards(GameManager.Instance.DrawDeck, this, GameManager.Instance.DrawDeck.Cards.Count, TraslationType.INSTANT, MoveType.FORWARD, true);
             GameManager.Instance.Score = 0;
         }
     }
 
 	#endregion
-
-    #region coroutines
-
-	/* sposta una carta animando la traslazione e la aggiunge al parent */
-    IEnumerator cMoveCard(Card card, Transform destination) {
-
-        _cMoveCard_running = true;
-
-        bool oldDraggable = Draggable;
-        Draggable = false;
-        card.SetSortingLayerName("Dragged"); // porto la carta in foreground
-
-        // ciclo per spostamento
-        while (card.transform.position != destination.position) {
-            card.transform.position = Vector3.MoveTowards(card.transform.position, destination.position, _cardSpeed * Time.deltaTime);
-            yield return 0;
-        }
-        card.SetSortingLayerName("Cards"); // porto la carta in background
-
-        Draggable = oldDraggable;
-        attachCardToParent(card, destination);
-
-        _cMoveCard_running = false;
-    }    
-
-    #endregion
 }

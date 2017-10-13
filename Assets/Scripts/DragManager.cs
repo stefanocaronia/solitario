@@ -4,7 +4,13 @@ using System.Collections.Generic;
 using Whatwapp;
 using System.Linq;
 
+/*  Componente che gestisce il drag & drop delle carte
+ *  e il touch 
+ *  
+ */
 public class DragManager : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler {
+
+    #region init
 
     private Card _card;
     private Vector3 _origin;
@@ -15,7 +21,11 @@ public class DragManager : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
     private Dictionary<Collider2D, float> _overlapAreas = new Dictionary<Collider2D, float>(); // aree di intersezione di ogni collider
     private List<Collider2D> _overlaps = new List<Collider2D>(); // tutti i collider sovrapposti
     private Collider2D[] _ownColliders; // tutti i child colliders (da escludere)
+
+    float lastClickTime = 0.0f;
     
+    #endregion
+
     private void Awake() {
         _card = GetComponent<Card>();
     }
@@ -26,12 +36,22 @@ public class DragManager : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
         MaxOverlap = null;
     }
 
+
     #region drag manager
+
+    private bool Disabled {
+        get {
+           return GameManager.Instance.Initializing || GameManager.Instance.DraggingDisabled || GameManager.Instance.GameState == GameState.PAUSE || !_card.Draggable || !_card.Deck.Draggable;
+        }
+    }
 
     public void OnBeginDrag(PointerEventData eventData) {
 
-        if (GameManager.Instance.GameState == GameState.PAUSE || !_card.Draggable || !_card.Deck.Draggable) return;
-        
+        if (Disabled) {
+            eventData.pointerDrag = null;
+            return;
+        }
+
         _origin = transform.position;
         _card.Dragged = true;
         transform.localScale = new Vector3(1.1f, 1.1f, 1.1f);        
@@ -42,8 +62,13 @@ public class DragManager : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
 
     public void OnDrag(PointerEventData eventData) {
 
-        if (GameManager.Instance.GameState == GameState.PAUSE || !_card.Draggable || !_card.Deck.Draggable || !_card.Dragged) return;
-        
+        if (Disabled) {
+            eventData.pointerDrag = null;
+            return;
+        }
+
+        GameManager.Instance.SomeoneIsDragging = true;
+
         Vector3 destination = getPointerPosition(eventData);
 
         transform.position = destination - _clickOffset;
@@ -65,7 +90,10 @@ public class DragManager : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
 
         clearOverlaps();
 
-        if (GameManager.Instance.GameState == GameState.PAUSE || !_card.Draggable || !_card.Deck.Draggable || !_card.Dragged) return;
+        if (Disabled) {
+            eventData.pointerDrag = null;
+            return;
+        }
 
         _card.Dragged = false;
         transform.localScale = new Vector3(1f, 1f, 1f);
@@ -80,6 +108,7 @@ public class DragManager : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
 
         _clickOffset = Vector3.zero;
         _targetDeck = null;
+        GameManager.Instance.SomeoneIsDragging = false;
     }
 
     private Vector3 getPointerPosition(PointerEventData eventData) {
@@ -87,10 +116,26 @@ public class DragManager : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndD
         return new Vector3((ray.origin + ray.direction).x, (ray.origin + ray.direction).y, 0.0f);
     }
 
+    private void OnMouseDown() {
+
+        // double click event
+        if (Time.time - lastClickTime < 0.5) {
+            OnDoubleTouch();
+        }
+        lastClickTime = Time.time;
+    }
+
+    private void OnDoubleTouch() {
+        Deck target = _card.ReadyToBaseDeck();
+        if (target != null) {
+            target.Drop(ref _card, _card.Deck);
+        }
+    }
+
     #endregion
 
     #region overlap manager
-    
+
     public void OnTriggerStay2D(Collider2D collision) {
         if (_card.Dragged) {
 

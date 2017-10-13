@@ -1,20 +1,32 @@
 ﻿using System.Collections;
 using Whatwapp;
 using UnityEngine;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
+/*  Componente Carta da gioco
+ *  
+ */
 [System.Serializable]
 public class Card : MonoBehaviour {
    
+    #region init
+
     public Deck Deck;
 
-    public float FlipSpeed = 20.0f;
-    public bool doFlip = true;
-    public bool Draggable = false;
+    public float FlipSpeed;
+    public bool doFlip;
+    public bool Draggable;	
+	public bool Moving;
 
     private SpriteRenderer backgroundRenderer;
     private SpriteRenderer valoreRenderer;
     private SpriteRenderer figuraRenderer;
     private SpriteRenderer semeRenderer;
+
+    public List<Move> PossibileMoves = new List<Move>();
+    public Move NextBestMove;
 
     // attivo mentre la carta viene trascinata
     private bool _dragged;
@@ -95,6 +107,8 @@ public class Card : MonoBehaviour {
             _scoperta = value;
         }
     }
+
+    #endregion
     
     void Awake() {
         backgroundRenderer = GetComponent<SpriteRenderer>();
@@ -102,7 +116,73 @@ public class Card : MonoBehaviour {
         figuraRenderer = transform.Find("Picture").GetComponent<SpriteRenderer>();
         semeRenderer = transform.Find("Suit").GetComponent<SpriteRenderer>();
     }
-        
+
+    #region AI
+
+    // trova la mossa migliore da fare
+    public void FindBestMove() {
+
+        if (Deck == null) return;
+
+        // se la carta è coperta cancello le mosse e me ne vado
+        if (!Scoperta) {
+            PossibileMoves.Clear();
+            return;
+        }
+
+        // svuoto la lista delle mosse
+        PossibileMoves.Clear();
+
+        Move move;
+
+        // testo lo spostamento della carta su ogni colonna
+        foreach (Deck target in GameManager.Instance.Columns) {
+            if (target != Deck && target.Accept(this)) { // solo se la colonna accetta la mia carta
+                move = new Move();
+                move.Card = this;
+                move.Sender = Deck;
+                move.Receiver = target;
+                if (Deck.Type == DeckType.BASE) continue; // se provengo da una base non è una buona mossa
+                if (Deck.Type == DeckType.COLUMN && transform.parent.GetComponent<Card>() != null && transform.parent.GetComponent<Card>().Scoperta) continue; // se mi sposto da una carta già scoperta non serve a nulla 
+                if (Value == Value.RE && Deck.Cards.First() == this) continue; // se sposto un re che è già al top di colonna, non è una grande mossa
+                if (Deck.Type == DeckType.COLUMN && Deck.Cards.Count == 1) move.Weight += 1; // se libero una colonna è bene
+                if (Deck.Type == DeckType.COLUMN && transform.parent.GetComponent<Card>() != null && !transform.parent.GetComponent<Card>().Scoperta) move.Weight += 2; // se libero una carta è bene
+                if (Value == Value.RE) move.Weight += 3; // se ho messo un re su una colonna libera è ancora meglio
+                PossibileMoves.Add(move);
+            }
+        }
+
+        foreach (Deck target in GameManager.Instance.Bases) {
+            if (target != Deck && target.Accept(this)) { // solo se la base accetta la mia carta 
+                move = new Move();
+                move.Card = this;
+                move.Sender = Deck;
+                move.Receiver = target;
+                move.Weight += 4; // ovviamente se metto una cosa in base è la mossa migliore
+                PossibileMoves.Add(move);
+            }
+        }
+
+        // Ordino la lista delle mosse e prendo quella con peso maggiore
+        PossibileMoves = PossibileMoves.OrderBy(x => x.Weight).Reverse().ToList();
+        if (PossibileMoves.Count > 0)
+            NextBestMove = PossibileMoves.First();
+        else
+            NextBestMove = null;
+    }
+
+    public Deck ReadyToBaseDeck() {
+        if (this != Deck.Top) return null;
+        foreach (Deck target in GameManager.Instance.Bases) {
+            if (target.Accept(this)) return target;
+        }
+        return null;
+    }
+
+    #endregion
+
+    #region visualizzazione
+
     // setto la figura della carta
     public void UpdateFigure() {
         if ((int)Value > 10)
@@ -156,6 +236,10 @@ public class Card : MonoBehaviour {
         }
     }
 
+	#endregion
+	
+    #region comportamento
+
     // setto l'ordine degli sprite nel layer
     public void SetSpritesOrderInLayer(int num) {
         if (transform.GetComponent<SpriteRenderer>() != null) {
@@ -179,14 +263,106 @@ public class Card : MonoBehaviour {
             sr.sortingLayerName = layer;
         }
     }
-    
-    #region coroutines
+	
+	/* rende una carta child di un mazzo o di un'altra carta */
+    public void SetParent(Transform destination) {
+       
+        transform.SetParent(destination); // il mazzo di destinazione diventa il parent della carta  
+        Scoperta = (Deck.Type != DeckType.MAIN); // scopro subito la carta (se la destinazione non è il mazzo principale)      
+        if (Deck.Type == DeckType.COLUMN) Draggable = Scoperta; // se la destinazione è una colonna, imposto la carta a trascinabile solo se è scoperta
+        Deck.Reorder(); // riordinamento mazzo
+    }
+	
+	public void Move(Transform target, TraslationType transition = TraslationType.INSTANT, Func<Card, bool> callback = null) {
+		StartCoroutine(cMove(target, transition, callback));
+	}
+
+    #endregion
+       
+    #region coroutines	
+
+    public void MovePhantom(Vector3 position) {
+        StartCoroutine(cMovePhantom(position));
+    }
+
+    public void SetAlpha(float alpha) {
+
+        SpriteRenderer[] renderers = GetComponentsInChildren<SpriteRenderer>();
+
+        UnityEngine.Color color;
+
+        foreach (SpriteRenderer sr in renderers) {
+            color = sr.material.color;
+            color.a = alpha;
+            sr.material.color = color;
+        }
+    }
+
+    public IEnumerator cMovePhantom(Vector3 position) {
+
+        if (Moving) yield break;
+        Moving = true;
+
+        Card Phantom = Instantiate(this, transform);
+        Phantom.SetSortingLayerName("Dragged");
+
+        Phantom.GetComponent<BoxCollider2D>().enabled = false;
+        Phantom.GetComponent<DragManager>().enabled = false;
+
+        Phantom.SetAlpha(0.8f);
+
+        // ciclo per spostamento
+        while (Phantom.transform.position != position && !GameManager.Instance.SomeoneIsDragging) {
+            Phantom.transform.position = Vector3.MoveTowards(Phantom.transform.position, position, (GameManager.Instance.CardSpeed/2) * Time.deltaTime);
+            yield return 0;
+        }
+
+        float alf = 1.0f;
+        // ciclo per dissolvenza
+        while (Phantom.GetComponent<SpriteRenderer>().material.color.a > 0.0f && !GameManager.Instance.SomeoneIsDragging) {
+            Phantom.SetAlpha(alf -= 1.6f * Time.deltaTime);
+            yield return 0;
+        }
+
+        Phantom.SetSortingLayerName("Cards"); // porto la carta in background
+
+        Destroy(Phantom.gameObject);
+        Moving = false;
+    }
+
+    /* sposta una carta fino a un target ed esegue il callback */
+    IEnumerator cMove(Transform target, TraslationType transition = TraslationType.INSTANT, Func<Card, bool> callback = null) {
+
+        if (transition == TraslationType.ANIMATE) {
+
+            GameManager.Instance.DraggingDisabled = true;
+            
+            SetSortingLayerName("Dragged"); // porto la carta in foreground
+           
+            // ciclo per spostamento
+            while (transform.position != target.position) {
+                transform.position = Vector3.MoveTowards(transform.position, target.position, GameManager.Instance.CardSpeed * Time.deltaTime);
+                //yield return new WaitForSeconds(0.2f);
+                yield return new WaitForFixedUpdate();
+            }
+
+            SetSortingLayerName("Cards"); // porto la carta in background
+        } else {
+            transform.position = target.position;
+        }
+        
+		// eseguo il callback
+		callback(this);
+        GameManager.Instance.DraggingDisabled = false;
+    }
 
     // animazione di flip della carta
     IEnumerator cFlip() {
 
         if (_flipping) yield break;
         _flipping = true;
+
+        GameManager.Instance.DraggingDisabled = true;
 
         float originalScale = transform.localScale.x;
         while (transform.localScale.x > 0.0f) {
@@ -204,6 +380,7 @@ public class Card : MonoBehaviour {
         transform.localScale = new Vector3(1.0f, 1.0f, 1.0f);
 
         _flipping = false;
+        GameManager.Instance.DraggingDisabled = false;
     }
 
     #endregion

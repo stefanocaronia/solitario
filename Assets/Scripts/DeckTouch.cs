@@ -1,12 +1,12 @@
 ﻿using UnityEngine;
 using Whatwapp;
 
-public class DeckTouchListener : MonoBehaviour {
+// oggetto in foreground per intercettare il click sul mazzo prima che vengano toccate le carte
+public class DeckTouch : MonoBehaviour {
     
     float lastEventTime = 0.0f;
     float timeBetweenEvents = 0.4f;
-
-    // ho creato un oggetto in foreground per intercettare il click sul mazzo prima che vengano toccate le carte
+   
     void OnMouseDown() {
         
         if (Time.time - lastEventTime < timeBetweenEvents) return;

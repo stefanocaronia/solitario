@@ -4,9 +4,15 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Whatwapp;
+using System.Linq;
 
+/*  GEstione del flusso di gioco
+ *  
+ */
 public class GameManager : MonoBehaviour {
     
+    #region init
+
     public static GameManager Instance; 
     public UIManager UI; // reference alla UI
 
@@ -20,25 +26,25 @@ public class GameManager : MonoBehaviour {
     public Deck DrawDeck;
 
     public List<Card> SavedCards;
-    public List<Move> Goals = new List<Move>();
 
     public Transform ColumnsContainer;
     public Transform BasesContainer;
 
     public Deck[] Columns = new Deck[7];
     public Deck[] Bases = new Deck[4];
-
-    // opzioni
-    public bool OptionDraw3 = false;
-    public bool OptionHints = false;
-
+    
     // Stack delle mosse
-    [SerializeField]
     public Stack<Move> MoveList = new Stack<Move>();
+    public Move LastMove;
+    public Move NextBestMove;
 
     float columnWidth = 0.76f;
-    float _cardSpeed = 30.0f; // velocità a cui vengono date le carte
-    
+    public float CardSpeed = 20.0f; // velocità di traslazione delle carte
+    public float GiveCardSpeed = 40.0f; // velocità di traslazione delle carte
+
+    public bool SomeoneIsDragging;
+    public bool DraggingDisabled;
+
     // punteggio
     private int _score;
     public int Score {
@@ -57,9 +63,11 @@ public class GameManager : MonoBehaviour {
             _moves = (value < 0 ? 0 : value);
             UI.Moves.text = _moves.ToString();
         }
-    }    
+    }
 
-    void Awake () {
+    #endregion
+
+    void Awake() {
 
         // Creo l'istanza singleton
         if (Instance == null) {
@@ -71,19 +79,22 @@ public class GameManager : MonoBehaviour {
     }
 
     // primo avvio del gioco
-    void Start() {   
-        
+    void Start() {
+
+        Initializing = true;
+
         PopulateMainDeck();
         saveCards();
-        CreateColumns();       
+        CreateColumns();
         InitBases();
         StartCoroutine("cGiveCards");
     }
+    
+    #region ciclo di attività
 
     // Nuova partita
     public void Restart() {
 
-        //Clean();
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
@@ -96,48 +107,15 @@ public class GameManager : MonoBehaviour {
         StartCoroutine("cGiveCards");
     }
 
-    // salvo le carte dell'ultimo mazzo
-    private void saveCards() {
+    #endregion
 
-        foreach (Card c in MainDeck.Cards)
-            SavedCards.Add(c);
-    }
-
-    // ripristino le carte salvate
-    private void restoreCards() {
-
-        foreach (Card sc in SavedCards) {
-            Card c = Instantiate(CardPrefab, MainDeck.transform);
-            c.Value = sc.Value;
-            c.Suit = sc.Suit;
-            c.Scoperta = false;
-            c.Draggable = false;
-            MainDeck.AddCard(ref c);
-        }
-        SavedCards.Clear();
-    }
-
-    // svuoto tutti i mazzi
-    private void Clean() {
-
-        foreach (Deck d in Bases) d.Clean();
-        foreach (Deck d in Columns) d.Clean(); 
-
-        DrawDeck.Clean();
-        MainDeck.Clean();
-
-        MoveList.Clear();
-        Goals.Clear();
-
-        Score = 0;
-        Moves = 0;
-    }
-
-    #region gestione stack delle mosse
+    #region stack delle mosse
 
     // aggiungo una mossa allo stack delle mosse
     public void RegisterMove(Move move) {
         MoveList.Push(move);
+        if (MoveList.Count > 0) LastMove = MoveList.First();
+
         //Debug.Log("Added Move: " + move.Quantity + " cards from " + move.Sender.name + " to " + move.Receiver.name + " Flipped: " + (move.Flipped?"TRUE":"FALSE"));
     }
 
@@ -148,18 +126,19 @@ public class GameManager : MonoBehaviour {
             return;
 
         Move lastMove = MoveList.Pop();
+        if (MoveList.Count > 0) LastMove = MoveList.First();
 
         //Debug.Log("Undo Last move: " + lastMove.Quantity + " cards from " + lastMove.Sender.name + " to " + lastMove.Receiver.name + " Flipped: " + (lastMove.Flipped ? "TRUE" : "FALSE"));
-        
+
         // è stato ripristinato il mazzo principale rovesciando le carte estratte
         if (lastMove.Sender.Type == DeckType.DRAW && lastMove.Receiver.Type == DeckType.MAIN) {
             
-            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.INSTANT, MoveDirection.REVERSE, true);
+            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.INSTANT, MoveType.BACK, true);
 
         // l'ultima mossa veniva dalle carte estratte
         } else if (lastMove.Sender.Type == DeckType.DRAW) {
 
-            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveDirection.REVERSE);
+            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
             Score -= lastMove.Score;
 
         // l'ultima mossa veniva da una colonna
@@ -169,22 +148,42 @@ public class GameManager : MonoBehaviour {
                 lastMove.Sender.Top.Scoperta = false;
             }
 
-
-            lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, MoveDirection.REVERSE);
+            lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, TraslationType.ANIMATE, MoveType.BACK);
+			//TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
             Score -= lastMove.Score;
         
         // l'ultima mossa veniva da una base
         } else if (lastMove.Sender.Type == DeckType.BASE) {
             
-            lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, MoveDirection.REVERSE);
+			//TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
+            lastMove.Sender.Drop(ref lastMove.Card, lastMove.Receiver, TraslationType.ANIMATE, MoveType.BACK);
             Score -= lastMove.Score;
 
         // l'ultima mossa veniva dal mazzo principale (estrazione di una carta)
         } else if (lastMove.Sender.Type == DeckType.MAIN) {
 
-            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveDirection.REVERSE);
+            TransferCards(lastMove.Receiver, lastMove.Sender, lastMove.Quantity, TraslationType.ANIMATE, MoveType.BACK);
+        }
+    }
+
+    public Move GetNextBestMove() {
+
+        List<Move> bestMoves = new List<Move>();
+        List<Card> UsableCardsInScene = FindObjectsOfType<Card>().ToList().FindAll(x => (x.IsScoperta || x.Scoperta) && x.Draggable);
+
+        foreach (Card card in UsableCardsInScene) {
+            card.FindBestMove();
+            if (card.NextBestMove != null) bestMoves.Add((Move)card.NextBestMove);
         }
 
+        bestMoves = bestMoves.OrderBy(x => x.Weight).Reverse().ToList();
+
+        if (bestMoves.Count > 0)
+            NextBestMove = bestMoves.First();
+        else
+            NextBestMove = null;
+
+        return NextBestMove;
     }
 
     #endregion
@@ -237,13 +236,49 @@ public class GameManager : MonoBehaviour {
         }
     }
 
+    // salvo le carte dell'ultimo mazzo
+    private void saveCards() {
+
+        foreach (Card c in MainDeck.Cards)
+            SavedCards.Add(c);
+    }
+
+    // ripristino le carte salvate
+    private void restoreCards() {
+
+        foreach (Card sc in SavedCards) {
+            Card c = Instantiate(CardPrefab, MainDeck.transform);
+            c.Value = sc.Value;
+            c.Suit = sc.Suit;
+            c.Scoperta = false;
+            c.Draggable = false;
+            MainDeck.AddCard(ref c);
+        }
+        SavedCards.Clear();
+    }
+
+    // svuoto tutti i mazzi
+    private void Clean() {
+
+        foreach (Deck d in Bases) d.Clean();
+        foreach (Deck d in Columns) d.Clean();
+
+        DrawDeck.Clean();
+        MainDeck.Clean();
+
+        MoveList.Clear();
+
+        Score = 0;
+        Moves = 0;
+    }
+
     /* Trasferisce le carte dalla cima di un mazzo alla cima dell'altro (anche multiple) */
     public static void TransferCards(
         Deck sender,   // mazzo di origine
         Deck receiver, // mazzo di destinazione
         int numCards = 1,
         TraslationType traslation = TraslationType.INSTANT,
-        MoveDirection direction = MoveDirection.FORWARD,
+        MoveType direction = MoveType.FORWARD,
         bool registerAsOneMove = false
     ) {
 
@@ -257,7 +292,7 @@ public class GameManager : MonoBehaviour {
 
             receiver.AddCard(ref card, sender, traslation);
 
-            if (direction == MoveDirection.FORWARD && !registerAsOneMove) {
+            if (direction == MoveType.FORWARD && !registerAsOneMove) {
                 Move newMove = new Move(sender, receiver, ref card);
                 GameManager.Instance.RegisterMove(newMove);
             }
@@ -271,7 +306,7 @@ public class GameManager : MonoBehaviour {
             GameManager.Instance.Score += score;
         }
 
-        if (direction == MoveDirection.FORWARD && registerAsOneMove) {
+        if (direction == MoveType.FORWARD && registerAsOneMove) {
             Card card = receiver.Top;
             Move newMove = new Move(sender, receiver, ref card, false, 0, numCards);
             GameManager.Instance.RegisterMove(newMove);
@@ -300,6 +335,7 @@ public class GameManager : MonoBehaviour {
 
     #region coroutines
 
+    // distribuisce le carte di gioco
     IEnumerator cGiveCards() {
 
         if (Columns.Length == 0) yield break;
@@ -319,8 +355,8 @@ public class GameManager : MonoBehaviour {
                 card.SetSortingLayerName("Dragged");
 
                 while (card.transform.position != destination.position) {
-                    card.transform.position = Vector3.MoveTowards(card.transform.position, destination.position, _cardSpeed * Time.deltaTime);
-                    yield return 0;
+                    card.transform.position = Vector3.MoveTowards(card.transform.position, destination.position, GiveCardSpeed * Time.deltaTime);
+                    yield return new WaitForFixedUpdate();
                 }
 
                 column.Cards.Add(card);

@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
+/*  Variabili e tabelle globali, utility e oggetti
+ *  
+ */
 namespace Whatwapp {
 
     public enum Suit {
@@ -52,9 +55,9 @@ namespace Whatwapp {
         ANIMATE
     }
 
-    public enum MoveDirection {
+    public enum MoveType {
         FORWARD,
-        REVERSE
+        BACK
     }
 
     public enum GameState {
@@ -71,6 +74,7 @@ namespace Whatwapp {
         };        
     }
 
+    // classe statica con funzioni globali di utilità
     public static class Utility {
         public static float OverlapArea(Rect rect1, Rect rect2) {
             float overlapX, overlapY;
@@ -90,7 +94,7 @@ namespace Whatwapp {
 
     // oggetto mossa
     [Serializable]
-    public struct Move {
+    public class Move {
         [SerializeField]
         public Deck Sender;
         [SerializeField]
@@ -103,18 +107,25 @@ namespace Whatwapp {
         public int Score;
         [SerializeField]
         public int Quantity;
+        [SerializeField]
+        public int Weight;
 
-        public Move(Deck sender, Deck receiver, ref Card card, bool flipped = false, int score = 0, int quantity = 1) {
+        public Move() {
+        }
+
+        public Move(Deck sender, Deck receiver, ref Card card, bool flipped = false, int score = 0, int quantity = 1, int weight = 0) {
             Sender = sender;
             Receiver = receiver;
             Card = card;
             Flipped = flipped;
             Score = score;
             Quantity = quantity;
+            Weight = weight;
         }
-    }
+    }	
 }
 
+// serve a randomizzare le liste
 public static class IEnumerableExtensions {
 
     public static IEnumerable<t> Randomize<t>(this IEnumerable<t> target) {
